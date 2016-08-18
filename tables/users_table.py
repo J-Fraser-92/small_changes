@@ -1,17 +1,12 @@
-import psycopg2
-
 from codec.messages import ERROR_MESSAGES, OK_MESSAGES
 from utils import *
 
 
-class UserDatabase:
+class UsersTable:
 
-    def __init__(self, dbname='test_small_changes'):
-        self.conn = psycopg2.connect("dbname=%s user='postgres' host='localhost' password='LegendaryLevine'" % dbname)
+    def __init__(self, connection):
+        self.conn = connection
         self.cur = self.conn.cursor()
-
-    def __del__(self):
-        self.conn.close()
 
     def is_email_existing(self, email):
         assert type(email) is str
@@ -24,34 +19,16 @@ class UserDatabase:
         assert type(exists[0]) is bool
         return exists[0]
 
-    def is_username_existing(self, username):
-        assert type(username) is str
-
-        query = "SELECT EXISTS(SELECT 1 FROM users WHERE username=%s)"
-        self.cur.execute(query, (username,))
-
-        exists = self.cur.fetchone()
-
-        assert type(exists[0]) is bool
-        return exists[0]
-
-    def password_match(self, username, password):
-        assert type(username) is str
-        assert 0 < len(username) <= 256
+    def password_match(self, email, password):
+        assert type(email) is str
         assert type(password) is str
 
-        if '@' in username:
-            if not self.is_email_existing(username):
-                return 404, ERROR_MESSAGES.EMAIL_NOT_FOUND
+        if not self.is_email_existing(email):
+            return 404, ERROR_MESSAGES.EMAIL_NOT_FOUND
 
-            query = "SELECT password, password_salt FROM users WHERE email=%s"
-        else:
-            if not self.is_username_existing(username):
-                return 404, 'The username provided was not found'
+        query = "SELECT password, password_salt FROM users WHERE email=%s"
 
-            query = "SELECT password, password_salt FROM users WHERE username=%s"
-
-        self.cur.execute(query, (username, ))
+        self.cur.execute(query, (email, ))
 
         actual_hash, salt = self.cur.fetchone()
         generated_hash = get_hash(salt, password)
@@ -68,9 +45,6 @@ class UserDatabase:
         if self.is_email_existing(email):
             return 409, ERROR_MESSAGES.EMAIL_IN_USE
 
-        if self.is_username_existing(username):
-            return 409, ERROR_MESSAGES.USERNAME_IN_USE
-
         salt = create_salt()
         hashed_password = get_hash(salt, password)
 
@@ -85,6 +59,20 @@ class UserDatabase:
         assert self.users_count == (before_count + 1)
 
         return 201, OK_MESSAGES.USER_ADDED
+
+    def get_user_id(self, email):
+        assert type(email) is str
+
+        if not self.is_email_existing(email):
+            return 404, ERROR_MESSAGES.EMAIL_NOT_FOUND
+
+        query = "SELECT id FROM users WHERE email=%s"
+        self.cur.execute(query, (email,))
+
+        ids = self.cur.fetchall()
+
+        assert len(ids) == 1
+        return ids[0][0]
 
     @property
     def users_count(self):
